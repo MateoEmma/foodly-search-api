@@ -1,0 +1,8 @@
+{
+    "database": {
+        "host": "database-1.cfisa6se87ao.us-east-1.rds.amazonaws.com",
+        "user": "admin",
+        "password": "foodly98765=",
+        "database": "foodlydb"
+    }
+}

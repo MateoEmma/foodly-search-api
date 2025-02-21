@@ -1,0 +1,202 @@
+{
+    "categories": {
+        "international": {
+            "id": 1,
+            "keywords": ["international", "world", "fusion", "foreign", "global"]
+        },
+        "fast_food": {
+            "id": 2,
+            "keywords": ["fast food", "quick", "fast", "burguer", "hot dog", "takeaway"]
+        },
+        "pizzeria": {
+            "id": 3,
+            "keywords": ["pizza", "pizzeria", "italian pizza", "italian"]
+        },
+        "japanese": {
+            "id": 4,
+            "keywords": ["japanese", "sushi", "ramen", "asian food"]
+        },
+        "meat": {
+            "id": 5,
+            "keywords": ["meat", "grill", "bbq", "barbecue", "steackhouse", "roust"]
+        },
+        "fusion": {
+            "id": 6,
+            "keywords": ["fusion", "modern", "contemporary", "mixed", "nikkei"]
+        },
+        "vegetarian": {
+            "id": 7,
+            "keywords": ["vegetarian", "vegan", "plant based", "healthy"]
+        },
+        "mexican": {
+            "id": 8,
+            "keywords": ["mexican", "tacos", "burrito", "latin", "latin america", "chili", "spicy"]
+        },
+        "korean": {
+            "id": 9,
+            "keywords": ["korean", "k-food", "kimchi", "korean bbq", "korean barbecue", "asian food"]
+        },
+        "portuguese": {
+            "id": 10,
+            "keywords": ["portuguese", "bacalao", "cod", "fish", "beef", "Francesinha sandwich", "Portuguese Custard Tart", "pastel de nata", "nata"]
+        },
+        "pastry": {
+            "id": 11,
+            "keywords": ["pastry", "dessert", "cake", "sweet", "bakery", "tea", "cafe", "breakfast", "brunch"]
+        },
+        "pubs": {
+            "id": 12,
+            "keywords": ["pub", "beer", "bar", "wine", "drinks", "whisky"]
+        },
+        "cafe": {
+            "id": 13,
+            "keywords": ["cafe", "coffee", "breakfast", "brunch"]
+        },
+        "market": {
+            "id": 14,
+            "keywords": ["market", "store", "grocery", "food store"]
+        },
+        "cooking_school": {
+            "id": 15,
+            "keywords": ["cooking school", "workshop", "kids"]
+        },
+        "italian": {
+            "id": 16,
+            "keywords": ["pasta", "ravioli", "spaghetti", "tiramisu", "pizza", "mediterranean food", "pizzeria"]
+        },
+        "spanish": {
+            "id": 17,
+            "keywords": ["spanish omelette", "tortilla", "bocata", "spanish sandwich", "octupus", "iberian ham", "jamon", "mediterranean food"]
+        },
+        "peruvian": {
+            "id": 18,
+            "keywords": ["peruvian", "ceviche", "aji", "huancaina", "nikkei", "fusion", "fish", "latin america", "latin"]
+        },
+        "chinese": {
+            "id": 19,
+            "keywords": ["sim sum", "chinese", "asian food", "asian", "pato pekin", "dan dan noodles"]
+        },
+        "thai": {
+            "id": 20,
+            "keywords": ["pad thai", "thai", "asian food", "asian", "curry", "spicy"]
+        }
+    },
+    "services": {
+        "wifi":{
+            "id": 1,
+            "keywords": ["internet", "wifi", "wi-fi", "red"]
+        },
+        "multilenguage": {
+            "id": 2,
+            "keywords": ["spanish", "english", "portuguese", "multilenguage"]
+        },
+        "kid_chair": {
+            "id": 3,
+            "keywords": ["baby", "kid chair"]
+        },
+        "baby_chnging": {
+            "id": 4,
+            "keywords": ["baby", "changing", "baby changing"]
+        },
+        "outdoor": {
+            "id": 5,
+            "keywords": ["outdoor", "open air"]
+        },
+        "pmr": {
+            "id": 6,
+            "keywords": ["accessibility", "mobility assistance", "inclusive dining", "ada compliant"]
+        },
+        "kids_play_area": {
+            "id": 7,
+            "keywords": ["kids", "play area", "funy", "kids play"]
+        },
+        "delivery": {
+            "id": 8,
+            "keywords": ["delivery", "online", "takeout", "service"]
+        },
+        "takeaway": {
+            "id": 9,
+            "keywords": ["takeaway", "take away", "take-away", "pickup", "pick up", "to go"]
+        },
+        "smoking": {
+            "id": 10,
+            "keywords": ["smoking area", "smoking"]
+        },
+        "happy_hours": {
+            "id": 11,
+            "keywords": ["happy hours", "offers", "promotions"]
+        },
+        "birthday": {
+            "id": 12,
+            "keywords": ["happy birthday", "offers", "promotions"]
+        },
+        "parking": {
+            "id": 13,
+            "keywords": ["parking"]
+        },
+        "pet": {
+            "id": 14,
+            "keywords": ["pet friendly", "pet"]
+        },
+        "catering": {
+            "id": 15,
+            "keywords": ["catering", "caterings service"]
+        },
+        "music": {
+            "id": 16,
+            "keywords": ["live music", "dinner show", "live show"]
+        }
+    },
+    "location": {
+        "keywords": [
+            "near",
+            "close",
+            "around", 
+            "nearby",
+            "nearest",
+            "walking distance",
+            "in",
+            "at",
+            "by",
+            "next to"
+        ]
+    },
+    "time": {
+        "keywords": {
+            "open_from": ["from", "after", "past", "starting", "opens at", "opens", "start", "begin", "beginning"],
+            "open_until": ["until", "before", "before", "closes at", "closes", "end", "finish", "finishing"],
+            "time_indicators": ["pm", "am", "morning", "afternoon", "evining", "night"],
+            "hours": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
+        }
+    },
+    "meal_times": {
+        "breakfast": {
+            "keywords": ["breakfast", "morning meal", "brunch"],
+            "typical_hours": {
+                "from": "7:00",
+                "to": "11:00"
+            }
+        },
+        "lunch": {
+            "keywords": ["lunch", "midday meal", "noon meal"],
+            "typical_hours": {
+                "from": "12:00",
+                "to": "15:00"
+            }
+        },
+        "tea": {
+            "keywords": ["tea", "afternoon tea", "snack", "merienda"],
+            "typical_hours": {
+                "from": "15:00",
+                "to": "17:00"
+            }
+        },
+        "dinner": {
+            "keywords": ["dinner", "evening meal", "supper"],
+            "typical_hours": {
+                "from": "19:00",
+                "to": "23:00"
+            }
+        }
+    }
+}
