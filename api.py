@@ -1,9 +1,15 @@
+import sys
+import os
+
+# Obtener la ruta absoluta del directorio del proyecto
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import json
 from .code.search.engine import SearchEngine
-from .code.search.text_processor import TextProcessor
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
@@ -37,13 +43,13 @@ except Exception as e:
 def search():
     try:
         data = request.json
-        
+
         # Obtener parámetros de la solicitud
         latitude = data.get('latitude')
         longitude = data.get('longitude')
         radius = min(float(data.get('radius', 5)), 50)
         voice_text = data.get('voice_text', '')
-        
+
         # Preparar coordenadas si se proporcionan
         coordinates = None
         if latitude is not None and longitude is not None:
@@ -51,9 +57,9 @@ def search():
                 'latitude': float(latitude),
                 'longitude': float(longitude)
             }
-        
+
         results = {}
-        
+
         # Si hay texto de voz, usar el procesador de voz
         if voice_text:
             search_result = search_engine.process_voice_search(
@@ -69,10 +75,10 @@ def search():
                 radius=radius
             )
             results = search_result
-        
+
         # Transformar los resultados al formato esperado por Laravel
         businesses = []
-        
+
         if 'results' in results:
             for business in results['results']:
                 businesses.append({
@@ -81,15 +87,15 @@ def search():
                     'distance': business.get('distance_km', 0),
                     'score': business.get('relevance', 1.0)
                 })
-        
+
         # Estructura de respuesta esperada por Laravel
         response = {
             'success': True,
             'businesses': businesses
         }
-        
+
         return jsonify(response)
-    
+
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()

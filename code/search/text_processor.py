@@ -57,8 +57,14 @@ class TextProcessor:
             for service_name, info in self.mappings['services'].items()
         }
     
-    def process_voice_query(self, text: str) -> str:
-        """Procesa la consulta de voz"""
+    def process_voice_query(self, text: str, coordinates: Optional[Dict] = None) -> Dict:
+        """
+        Procesa la consulta de voz
+        
+        Args:
+            text: El texto de la consulta de voz
+            coordinates: Diccionario opcional con 'latitude' y 'longitude'
+        """
         # Tokenización y normalización básica
         tokens = word_tokenize(text.lower())
         
@@ -88,9 +94,10 @@ class TextProcessor:
             filters['meal_time'] = meal_time
         
         return {
-            'query': self._clean_search_text(tokens, stemmed_tokens),  # Pasamos ambos argumentos
+            'query': self._clean_search_text(tokens, stemmed_tokens),
             'filters': filters,
             'use_location': location_context,
+            'coordinates': coordinates,  # Añadir coordenadas a la respuesta
             'original_text': text
         }
     
