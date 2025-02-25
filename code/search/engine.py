@@ -21,7 +21,7 @@ class SearchEngine:
         """
         search_params = self.text_processor.process_voice_query(
             text=voice_text,
-            user_coordinates=coordinates
+            coordinates=coordinates
         )
 
         results = self.search_businesses(
