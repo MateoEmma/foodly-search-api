@@ -15,7 +15,7 @@ class TextProcessor:
             nltk.download('punkt_tab')  # Agregamos este recurso
         except Exception as e:
             print(f"Error downloading NLTK resources: {e}")
-        
+
         self.stemmer = SnowballStemmer('english')
         self.stop_words = set(stopwords.words('english'))
         self.mappings = self._load_mappings()
@@ -23,24 +23,24 @@ class TextProcessor:
         # Preparar stems de keywords
         self.category_stems = self._prepare_categories_stems()
         self.service_stems = self._prepare_services_stems()
-    
+
     def _load_mappings(self) -> Dict:
         """
         Carga los mapeos desde el json
         """
         try:
             config_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), 
-                'cfg', 
+                os.path.dirname(os.path.dirname(__file__)),
+                'cfg',
                 'search_map.json'
             )
             with open(config_path, 'r') as f:
                 return json.load(f)
-        
+
         except Exception as e:
             print(f"Error loading mappings: {e}")
             return {}
-    
+
     def _prepare_categories_stems(self) -> Dict[str, List[str]]:
         """Prepara los stems de las keywords de categorías"""
         return{
@@ -48,26 +48,26 @@ class TextProcessor:
                             for keyword in info['keywords']]
             for category_name, info in self.mappings['categories'].items()
         }
-    
+
     def _prepare_services_stems(self) -> Dict[str, List[str]]:
         """Prepara los stems de las keywords de servicios"""
         return {
-            service_name: [self.stemmer.stem(keyword) 
+            service_name: [self.stemmer.stem(keyword)
                          for keyword in info['keywords']]
             for service_name, info in self.mappings['services'].items()
         }
-    
+
     def process_voice_query(self, text: str, coordinates: Optional[Dict] = None) -> Dict:
         """
         Procesa la consulta de voz
-        
+
         Args:
             text: El texto de la consulta de voz
             coordinates: Diccionario opcional con 'latitude' y 'longitude'
         """
         # Tokenización y normalización básica
         tokens = word_tokenize(text.lower())
-        
+
         # Remover stopwords y aplicar stemming
         stemmed_tokens = [
             self.stemmer.stem(token)
@@ -92,7 +92,7 @@ class TextProcessor:
             filters['time'] = time_info
         if meal_time:
             filters['meal_time'] = meal_time
-        
+
         return {
             'query': self._clean_search_text(tokens, stemmed_tokens),
             'filters': filters,
@@ -100,7 +100,7 @@ class TextProcessor:
             'coordinates': coordinates,  # Añadir coordenadas a la respuesta
             'original_text': text
         }
-    
+
     def _identify_meal_time(self, tokens: List[str]) -> Optional[Dict]:
         """
         Identifica si se está buscando un momento específico de comida
@@ -115,7 +115,7 @@ class TextProcessor:
                     'typical_hours': info['typical_hours']
                 }
         return None
-    
+
     def _extract_time_info(self, tokens: List[str]) -> Optional[Dict]:
         """
         Extrae información de horarios del texto.
@@ -139,7 +139,7 @@ class TextProcessor:
             elif period == 'am' and hour == 12:
                 hour = 0
             return f"{hour:02d}:00"
-        
+
         for i, token in enumerate(tokens):
             if token.isdigit() or token in number_mapping:
                 hour = int(token if token.isdigit() else number_mapping[token])
@@ -147,7 +147,7 @@ class TextProcessor:
                 period = None
                 if i + 1 < len(tokens) and tokens[i + 1].lower() in ['am', 'pm']:
                     period = tokens[i + 1].lower()
-                
+
                 context_star = max(0, i - 3)
                 context_text = ' '.join(tokens[context_star:i])
 
@@ -155,37 +155,37 @@ class TextProcessor:
                     time_info['open_from'] = convert_to_24(hour, period or 'am')
                 elif any(keyword in context_text for keyword in time_keywords['open_until']):
                     time_info['open_until'] = convert_to_24(hour, period or 'pm')
-                
+
                 elif not time_info:
                     time_info['open_from'] = convert_to_24(hour, period or 'am')
-        
+
         return time_info if time_info else None
-    
+
     def _check_location_context(self, tokens: List[str]) -> bool:
         """
         Revisa si el texto contiene información de localización
         """
         location_keywords = self.mappings['location']['keywords']
         has_location_keyword = any(keyword in ' '.join(tokens) for keyword in location_keywords)
-        
+
         # Palabras específicas que indican ubicación actual
         current_location_indicators = ['me', 'my location', 'current location', 'me', 'here']
         has_current_location = any(indicator in tokens for indicator in current_location_indicators)
-        
+
         return has_location_keyword or has_current_location
-    
+
     def _identify_service(self, stemmed_tokens: List[str]) -> Optional[int]:
         """
         Identifica el servicio en el texto
         """
         # Convertir tokens a texto para buscar frases completas
         text = ' '.join(stemmed_tokens)
-        
+
         for service_name, service_info in self.mappings['services'].items():
             # Buscar coincidencias exactas de frases
             if any(keyword in text for keyword in service_info['keywords']):
                 return service_info['id']
-            
+
             # Buscar coincidencias de palabras compuestas
             compound_matches = [
                 keyword for keyword in service_info['keywords']
@@ -193,44 +193,44 @@ class TextProcessor:
             ]
             if compound_matches:
                 return service_info['id']
-                
+
         return None
-    
+
     def _identify_category(self, stemmed_tokens: List[str]) -> Optional[int]:
         """Identifica la categoría usando stems"""
         for category_name, stems in self.category_stems.items():
             if any(token in stems for token in stemmed_tokens):
                 return self.mappings['categories'][category_name]['id']
         return None
-    
+
     def _clean_search_text(self, tokens: List[str], stemmed_tokens: List[str]) -> str:
         """Limpia el texto manteniendo términos relevantes"""
         # Obtener todos los stems a remover
         remove_stems = set()
-        
+
         # Agregar stems de categorías y servicios
         for stems in self.category_stems.values():
             remove_stems.update(stems)
         for stems in self.service_stems.values():
             remove_stems.update(stems)
-            
+
         # Agregar stems de ubicación y palabras comunes
-        location_stems = [self.stemmer.stem(word) 
+        location_stems = [self.stemmer.stem(word)
                         for word in self.mappings['location']['keywords']]
-        common_stems = [self.stemmer.stem(word) 
+        common_stems = [self.stemmer.stem(word)
                     for word in ['find', 'search', 'looking', 'want', 'get']]
-        
+
         remove_stems.update(location_stems)
         remove_stems.update(common_stems)
-        
+
         # Mantener solo palabras relevantes
         clean_tokens = []
         for token, stem in zip(tokens, stemmed_tokens):
             if stem not in remove_stems and token not in self.stop_words:
                 clean_tokens.append(token)
-                
+
         return ' '.join(clean_tokens)
-    
+
 
 #processor = TextProcessor()
 
