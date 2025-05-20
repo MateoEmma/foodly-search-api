@@ -3,7 +3,6 @@ import mysql.connector
 from mysql.connector import Error
 import time
 import json
-from datetime import datetime
 from .querys import STATS_GENERAL_QUERY, TOP_SEARCHES_QUERY, HOURLY_DISTRIBUTION_QUERY
 from .text_processor import TextProcessor
 import logging
@@ -116,6 +115,92 @@ class SearchEngine:
             logging.error(f"Tipo de error: {type(e)}")
             logging.error(f"Detalles: {e}")
             return False
+
+    #Metodo de diagnostico para busquedas
+    def _diagnose_business_search(self, coordinates, radius, filters=None):
+        """
+        MEtodo de diagnostico generico para busquedas
+        """
+        try:
+            conn = mysql.connector.connect(**self.db_config)
+            cursor = conn.cursor(dictionary=True)
+
+            #Construccion dinámica de la consulta SQL
+            sql_parts = [
+            """
+            SELECT
+                id,
+                business_name,
+                business_latitude,
+                business_longitude,
+                category_id,
+                ST_Distance_Sphere(
+                    point(%s, %s),
+                    point(business_longitude, business_latitude)
+                ) * 0.001 as distance_km
+            FROM businesses
+            WHERE
+                deleted_at IS NULL
+                AND ST_Distance_Sphere(
+                    point(business_longitude, business_latitude),
+                    point(%s, %s)
+                ) * 0.001 <= %s
+            """
+            ]
+
+            params = [
+                coordinates['longitude'],
+                coordinates['latitude'],
+                coordinates['longitude'],
+                coordinates['latitude'],
+                radius
+            ]
+
+            #Aplicar filtros adicionales si existen
+            if filters:
+                if 'category_id' in filters:
+                    sql_parts.append(" AND category_id = %s")
+                    params.append(filters['category_id'])
+
+            sql_parts.append(" ORDER BY distance_km ASC")
+
+            #Combinar partes de la consulta
+            sql = ''.join(sql_parts)
+
+            cursor.execute(sql, params)
+            businesses = cursor.fetchall()
+
+            logging.info("Diagnóstico detallado de búsqueda de negocios:")
+            logging.info(f"Coordenadas de búsqueda: {coordinates}")
+            logging.info(f"Radio de búsqueda: {radius} km")
+            logging.info(f"Filtros aplicados: {filters}")
+            logging.info(f"Número total de negocios encontrados: {len(businesses)}")
+
+            # Método para formatear la salida de un negocio
+            def format_business_log(business):
+                return (
+                    f"Negocio: {business['business_name']}\n"
+                    f"ID: {business['id']}\n"
+                    f"Categoría ID: {business['category_id']}\n"
+                    f"Latitud: {business['business_latitude']}\n"
+                    f"Longitud: {business['business_longitude']}\n"
+                    f"Distancia: {business['distance_km']} km"
+                )
+
+            # Loguear detalles de cada negocio
+            for business in businesses:
+                logging.info("-" * 50)
+                logging.info(format_business_log(business))
+
+            return businesses
+
+        except mysql.connector.Error as err:
+            logging.error(f"Error en diagnóstico de búsqueda de negocios: {err}")
+            return []
+        finally:
+            if 'conn' in locals() and conn.is_connected():
+                cursor.close()
+                conn.close()
 
     def process_voice_search(self, voice_text: str, coordinates: Optional[Dict] = None) -> Dict:
         """
@@ -239,14 +324,22 @@ class SearchEngine:
                 SELECT DISTINCT
                     b.id,
                     b.business_name as name,
-                    b.business_about_us as description,
+                    b.business_about_us,
                     b.business_address as address,
                     b.business_email as email,
                     b.business_phone as phone,
                     b.business_latitude as latitude,
                     b.business_longitude as longitude,
+                    b.user_id,
+                    b.business_uuid,
+                    b.business_logo,
+                    b.business_additional_info,
+                    b.business_zipcode,
+                    b.business_city,
+                    b.business_country,
+                    b.business_website,
                     c.id as category_id,
-                    c.category_name
+                    c.category_name as category_name
             """
 
             params = []
@@ -264,6 +357,14 @@ class SearchEngine:
                     coordinates['latitude']
                 ])
 
+            # Diagnóstico de búsqueda de negocios
+            if coordinates:
+                diagnostic_businesses = self._diagnose_business_search(
+                    coordinates,
+                    radius,
+                    filters
+                )
+
             # Para la cláusula de relevancia
             if query and query.strip():
                 # Si hay consulta, usar MATCH AGAINST para relevancia
@@ -279,14 +380,14 @@ class SearchEngine:
 
             # Añadir resto de la consulta
             sql += """
-                , GROUP_CONCAT(DISTINCT s.service_name) as services
-                FROM
-                    businesses b
-                    LEFT JOIN categories c ON b.category_id = c.id
-                    LEFT JOIN business_service bs ON b.id = bs.business_id
-                    LEFT JOIN services s ON bs.service_id = s.id
-                WHERE
-                    b.deleted_at IS NULL
+                , (SELECT GROUP_CONCAT(DISTINCT service_id)
+                           FROM business_service
+                           WHERE business_id = b.id) as service_ids
+                    FROM
+                        businesses b
+                        LEFT JOIN categories c ON b.category_id = c.id
+                    WHERE
+                        b.deleted_at IS NULL
             """
 
             # Aplicar filtro de búsqueda por texto si existe
