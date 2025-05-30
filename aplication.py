@@ -8,6 +8,40 @@ sys.path.insert(0, current_dir)
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
+
+# Manejo robusto de NLTK
+def setup_nltk():
+    """Configurar NLTK con manejo de errores"""
+    import ssl
+    import nltk
+    
+    try:
+        # Configurar SSL para descargas de NLTK
+        try:
+            _create_unverified_https_context = ssl._create_unverified_context
+        except AttributeError:
+            pass
+        else:
+            ssl._create_default_https_context = _create_unverified_https_context
+        
+        # Verificar si los datos ya existen
+        try:
+            nltk.data.find('tokenizers/punkt')
+            logging.info("NLTK data already available")
+        except LookupError:
+            logging.info("Downloading NLTK data...")
+            nltk.download('punkt', quiet=True)
+            nltk.download('stopwords', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
+            logging.info("NLTK data downloaded successfully")
+            
+    except Exception as e:
+        logging.error(f"Error setting up NLTK: {e}")
+        raise
+
+# Configurar NLTK
+setup_nltk()
+
 from code.search.engine import SearchEngine  # Sin el punto inicial
 from dotenv import load_dotenv
 import logging
