@@ -1,15 +1,14 @@
 import sys
 import os
 
-# Obtener la ruta absoluta del directorio del proyecto
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
+# Configurar el path para encontrar los módulos
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
 import json
-from .code.search.engine import SearchEngine
+from code.search.engine import SearchEngine  # Sin el punto inicial
 from dotenv import load_dotenv
 import logging
 import traceback
@@ -523,10 +522,27 @@ def search():
 @app.route('/health', methods=['GET'])
 def health_check():
     """Endpoint para verificar que la API está funcionando"""
-    return jsonify({
-        'status': 'healthy',
-        'version': '1.0.0'
-    })
+    try:
+        # Verificar conexión a la base de datos
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'version': '1.0.0',
+            'database': 'connected',
+            'search_engine': 'available' if search_engine else 'unavailable'
+        })
+    except Exception as e:
+        logging.error(f"Health check failed: {str(e)}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
