@@ -9,14 +9,14 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import json
-from code.search.engine import SearchEngine
+from .code.search.engine import SearchEngine
 from dotenv import load_dotenv
 import logging
 import traceback
 import datetime
 import mysql.connector
 
-log_dir = os.path.join(os.path.expanduser("~"), "logs")
+log_dir = os.environ.get('LOG_DIR', os.path.join(os.path.expanduser("~"), "logs"))
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, "foodly_search_api.log")
 
@@ -28,9 +28,13 @@ try:
 
     # Configuración básica (solo para la salida estándar)
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Para CloudWatch
+        logging.FileHandler(log_file)  # Archivo local
+    ]
+)
 
     # Añadir handler para archivo manualmente
     file_handler = logging.FileHandler(log_file)
@@ -63,18 +67,31 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 app.json_encoder = CustomJSONEncoder
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Manejador global de excepciones para la aplicación"""
+    logging.error(f"Error no capturado: {str(e)}")
+    logging.error(traceback.format_exc())
+    return jsonify({
+        'success': False,
+        'message': f'Error del servidor: {str(e)}'
+    }), 500
+
 # Cargar configuración de la base de datos desde config.json
 try:
     with open('code/cfg/config.json', 'r') as config_file:
         db_config = json.load(config_file)
+        # Si estamos en JSON, asegurarse que tenga la estructura correcta
+        if 'database' in db_config:
+            db_config = db_config['database']
 except Exception as e:
-    print(f"Error cargando configuración desde config.json: {e}")
-    # Configuración predeterminada
+    logging.warning(f"Error cargando configuración desde config.json: {e}")
+    # Configuración desde variables de entorno (prioridad para AWS)
     db_config = {
-        'host': os.environ.get('DB_HOST', 'MateoAlvarez.mysql.pythonanywhere-services.com'),
-        'user': os.environ.get('DB_USER', 'MateoAlvarez'),
-        'password': os.environ.get('DB_PASSWORD', 'foodlywolrd=!'),
-        'database': os.environ.get('DB_NAME', 'MateoAlvarez$foodlyDBCloud')
+        'host': os.environ.get('DB_HOST', 'database-1.cfisa6se87ao.us-east-1.rds.amazonaws.com'),
+        'user': os.environ.get('DB_USER', 'admin'),
+        'password': os.environ.get('DB_PASSWORD', 'foodly98765='),
+        'database': os.environ.get('DB_NAME', 'foodlydb')
     }
 
 # Logging adicional de configuración
