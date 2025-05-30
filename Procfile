@@ -1,1 +1,1 @@
-web: gunicorn --workers=3 --threads=3 api:app
+web: gunicorn --bind 0.0.0.0:8000 application:app
