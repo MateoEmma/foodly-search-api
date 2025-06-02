@@ -5,6 +5,7 @@ from nltk.corpus import stopwords
 from nltk.stem import SnowballStemmer
 import json
 import os
+import re
 
 class TextProcessor:
     def __init__(self):
@@ -59,29 +60,62 @@ class TextProcessor:
 
     def process_voice_query(self, text: str, coordinates: Optional[Dict] = None) -> Dict:
         """
-        Procesa la consulta de voz
-
-        Args:
-            text: El texto de la consulta de voz
-            coordinates: Diccionario opcional con 'latitude' y 'longitude'
+        Procesa la consulta de voz con sistema de prioridades para ubicación
+        REEMPLAZA el método existente process_voice_query
         """
         # Tokenización y normalización básica
         tokens = word_tokenize(text.lower())
-
-        # Remover stopwords y aplicar stemming
+        
+        # 1. PRIORIDAD ALTA: Verificar si hay una ubicación específica mencionada
+        specific_location_info = self._extract_location_from_text(tokens)
+        
+        # 2. PRIORIDAD MEDIA: Verificar si debe usar ubicación del usuario
+        use_user_location = self._should_use_user_location(tokens)
+        
+        # 3. Determinar qué coordenadas usar y estrategia de búsqueda
+        final_coordinates = None
+        location_source = "none"
+        cleaned_tokens = tokens
+        use_global_search = False
+        
+        if specific_location_info and not use_user_location:
+            # HAY ubicación específica mencionada - NO usar coordenadas del usuario
+            location_source = "text_specified"
+            final_coordinates = None  # Búsqueda global sin restricción geográfica
+            use_global_search = True
+            
+            # Limpiar tokens removiendo la referencia de ubicación
+            cleaned_tokens = self._clean_location_from_tokens(tokens)
+            
+            print(f"Ubicación específica detectada: {specific_location_info['location_name']}")
+            print(f"Cambiando a búsqueda global, ignorando coordenadas del usuario")
+            
+        elif use_user_location and coordinates:
+            # Usuario quiere buscar cerca de su ubicación actual
+            final_coordinates = coordinates
+            location_source = "user_location"
+            print(f"Usando ubicación del usuario: {coordinates}")
+            
+        elif coordinates and not specific_location_info:
+            # Sin indicaciones específicas, usar coordenadas por defecto
+            final_coordinates = coordinates
+            location_source = "default_coordinates"
+            print(f"Usando coordenadas por defecto: {coordinates}")
+        
+        # Remover stopwords y aplicar stemming a los tokens limpios
         stemmed_tokens = [
             self.stemmer.stem(token)
-            for token in tokens
+            for token in cleaned_tokens
             if token not in self.stop_words
         ]
-
+        
         # Identificar categoría y servicio usando stems
         category_id = self._identify_category(stemmed_tokens)
         service_id = self._identify_service(stemmed_tokens)
         location_context = self._check_location_context(tokens)
         time_info = self._extract_time_info(tokens)
         meal_time = self._identify_meal_time(tokens)
-
+        
         # Construir filtros
         filters = {}
         if category_id:
@@ -92,12 +126,15 @@ class TextProcessor:
             filters['time'] = time_info
         if meal_time:
             filters['meal_time'] = meal_time
-
+        
         return {
-            'query': self._clean_search_text(tokens, stemmed_tokens),
+            'query': self._clean_search_text(cleaned_tokens, stemmed_tokens),
             'filters': filters,
-            'use_location': location_context,
-            'coordinates': coordinates,  # Añadir coordenadas a la respuesta
+            'use_location': bool(final_coordinates),
+            'coordinates': final_coordinates,
+            'location_source': location_source,
+            'use_global_search': use_global_search,
+            'specific_location_info': specific_location_info,
             'original_text': text
         }
 
@@ -230,7 +267,72 @@ class TextProcessor:
                 clean_tokens.append(token)
 
         return ' '.join(clean_tokens)
+    
+    def _extract_location_from_text(self, tokens: List[str]) -> Optional[Dict]:
+        '''
+        Detecta si hay una ubicacion especifica mencionada en el texto
+        '''
 
+        text = ' '.join(tokens).lower()
+
+        import re
+        location_patterns = [
+            r'in\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
+            r'at\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
+            r'near\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
+            r'around\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)'
+            r'by\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)'
+        ]
+
+        for pattern in location_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                location_name = match.strip()
+                
+                exclude_words = {
+                    'me', 'you', 'here', 'there', 'home', 'work', 
+                    'the', 'a', 'an', 'my', 'your', 'this', 'that',
+                    'good', 'bad', 'nice', 'great', 'best', 'worst',
+                    'order', 'delivery', 'pickup', 'takeaway', 'restaurant'
+                }
+
+                if (len(location_name) >= 3 and
+                    location_name.lower() not in exclude_words and
+                    not any(word in location_name.lower().split() for word in exclude_words)):
+
+                    print(f'Ubicacion especifica detectada: {location_name}')
+                    return {
+                        'location_specified': True,
+                        'location_name': location_name,
+                        'original_pattern': pattern
+                    }
+        return None
+    
+    def _should_use_user_location(self, tokens: List[str]) -> bool:
+        """
+        Determina si se debe usar la ubicación del usuario
+        """
+        user_location_indicators = [
+            'near me', 'close to me', 'around me', 'nearby me',
+            'current location', 'my location', 'here', 'nearby',
+            'walking distance', 'close', 'around'
+        ]
+
+        text = ' '.join(tokens).lower()
+
+        #Verificar palabras clave del mapping existente
+        location_keywords = self.mapping.get('location', {}).get('keywords', [])
+
+        #Combinar ambas listas
+        all_indicators = user_location_indicators + location_keywords
+
+        #Verificar si alguna de las palabras clave está en el texto
+        has_user_keywords = any(indicator in text for indicator in all_indicators)
+
+        #Verificar si No hay ubicacion especifica mencionada
+        has_specific_location = self._extract_location_from_text(tokens) is not None
+
+        return has_user_keywords and not has_specific_location
 
 #processor = TextProcessor()
 

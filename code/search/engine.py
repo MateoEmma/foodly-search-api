@@ -204,29 +204,60 @@ class SearchEngine:
 
     def process_voice_search(self, voice_text: str, coordinates: Optional[Dict] = None) -> Dict:
         """
-        Procesa una búsqueda de voz y la ejecuta
+        Procesa una búsqueda de voz con sistema de prioridades de ubicación
         """
         logging.info(f"Iniciando procesamiento de búsqueda de voz: '{voice_text}'")
         logging.info(f"Coordenadas proporcionadas: {coordinates}")
-
+        
         search_params = self.text_processor.process_voice_query(
             text=voice_text,
             coordinates=coordinates
         )
+        
         logging.info(f"Parámetros de búsqueda procesados: {search_params}")
-
+        logging.info(f"Fuente de ubicación: {search_params.get('location_source', 'unknown')}")
+        
+        # Determinar estrategia de búsqueda basada en la fuente de ubicación
+        if search_params.get('use_global_search', False):
+            # Búsqueda global para ubicaciones específicas mencionadas en texto
+            radius = 50.0  # Radio muy amplio
+            search_coordinates = None  # Sin restricción geográfica
+            logging.info(f"Realizando búsqueda global para ubicación específica del texto")
+            
+            # Si el texto menciona una ubicación específica, buscar por nombre también
+            if search_params.get('specific_location_info'):
+                location_name = search_params['specific_location_info']['location_name']
+                # Añadir el nombre de la ubicación a la query para mejorar matching
+                original_query = search_params['query']
+                enhanced_query = f"{original_query} {location_name}".strip()
+                search_params['query'] = enhanced_query
+                logging.info(f"Query mejorada con ubicación: '{enhanced_query}'")
+            
+        elif search_params.get('location_source') == 'user_location':
+            # Búsqueda normal cerca del usuario
+            radius = 5.0
+            search_coordinates = search_params['coordinates']
+            logging.info(f"Búsqueda cerca del usuario con radio: {radius}km")
+            
+        else:
+            # Búsqueda por defecto
+            radius = 10.0
+            search_coordinates = search_params['coordinates']
+            logging.info(f"Búsqueda por defecto con radio: {radius}km")
+        
         results = self.search_businesses(
             query=search_params['query'],
             filters=search_params['filters'],
-            coordinates=search_params['coordinates'],
-            radius=5.0
+            coordinates=search_coordinates,
+            radius=radius
         )
-
+        
         if isinstance(results, dict) and 'results' in results:
             logging.info(f"Búsqueda completada. Resultados: {len(results.get('results', []))} negocios encontrados")
+            logging.info(f"Estrategia utilizada: {search_params.get('location_source')}")
         else:
             logging.warning(f"Estructura de resultados inesperada: {type(results)}")
-
+        
         return {
             'results': results,
             'search_params': search_params
@@ -346,16 +377,20 @@ class SearchEngine:
 
             # Añadir distancia si hay coordenadas
             if coordinates:
-                sql += """,
-                    ST_Distance_Sphere(
-                    point(b.business_longitude, b.business_latitude),
-                    point(%s, %s)
-                    ) * 0.001 as distance_km
-                    """
+                sql += """
+                    AND ST_Distance_Sphere(
+                        point(b.business_longitude, b.business_latitude),
+                        point(%s, %s)
+                    ) * 0.001 <= %s
+                """
                 params.extend([
                     coordinates['longitude'],
-                    coordinates['latitude']
+                    coordinates['latitude'],
+                    radius
                 ])
+                logging.info(f"Aplicando filtro de distancia con radio: {radius}km")
+            else:
+                logging.info("Búsqueda global sin restricción de distancia")
 
             # Diagnóstico de búsqueda de negocios
             if coordinates:
@@ -426,13 +461,15 @@ class SearchEngine:
             if coordinates and (not query or not query.strip()):
                 # Si solo hay coordenadas, ordenar por distancia
                 sql += " ORDER BY distance_km ASC"
-            else:
-                # Si hay consulta o ambos, ordenar por relevancia
+            elif coordinates:
+                # Si hay consulta Y coordenadas, ordenar por relevancia y luego distancia
+                sql += " ORDER BY relevance DESC, distance_km ASC"
+            elif query and query.strip():
+                # Si solo hay consulta (búsqueda global), ordenar por relevancia
                 sql += " ORDER BY relevance DESC"
-
-                # Si también hay coordenadas, usar orden secundario por distancia
-                if coordinates:
-                    sql += ", distance_km ASC"
+            else:
+                # Fallback: ordenar por ID
+                sql += " ORDER BY b.id ASC"
 
             # Añadir paginación
             sql += " LIMIT %s OFFSET %s"
