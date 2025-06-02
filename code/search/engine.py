@@ -368,7 +368,7 @@ class SearchEngine:
             # Calcular offset para paginación
             offset = (page - 1) * per_page
 
-            # Construir consulta base SIMPLIFICADA
+            # Construir consulta base
             sql = """
                 SELECT DISTINCT
                     b.id,
@@ -395,57 +395,74 @@ class SearchEngine:
 
             # Añadir distancia si hay coordenadas
             if coordinates:
-                sql += """,
-                    ST_Distance_Sphere(
-                    point(b.business_longitude, b.business_latitude),
-                    point(%s, %s)
-                    ) * 0.001 as distance_km
-                    """
+                sql += """
+                    AND ST_Distance_Sphere(
+                        point(b.business_longitude, b.business_latitude),
+                        point(%s, %s)
+                    ) * 0.001 <= %s
+                """
                 params.extend([
                     coordinates['longitude'],
-                    coordinates['latitude']
+                    coordinates['latitude'],
+                    radius
                 ])
-
-            # Para la cláusula de relevancia - SIMPLIFICADA
-            if query and query.strip():
-                sql += """
-                    , CASE 
-                        WHEN LOWER(b.business_name) LIKE LOWER(%s) THEN 3
-                        WHEN LOWER(b.business_name) LIKE LOWER(%s) THEN 2
-                        ELSE 1
-                      END as relevance
-                """
-                params.extend([f"%{query}%", f"{query}%"])
+                logging.info(f"Aplicando filtro de distancia con radio: {radius}km")
             else:
-                sql += ", 1 as relevance"
+                logging.info("Búsqueda global sin restricción de distancia")
 
-            # Añadir GROUP_CONCAT de service_ids
+            # Diagnóstico de búsqueda de negocios
+            if coordinates:
+                diagnostic_businesses = self._diagnose_business_search(
+                    coordinates,
+                    radius,
+                    filters
+                )
+
+            # Para la cláusula de relevancia
+            if query and query.strip():
+                # Si hay consulta, usar MATCH AGAINST para relevancia
+                sql += """
+                    , MATCH(b.business_name) AGAINST(%s IN NATURAL LANGUAGE MODE) as relevance
+                """
+                params.append(query)
+            else:
+                # Si no hay consulta, todos tienen la misma relevancia
+                sql += """
+                    , 1 as relevance
+                """
+
+            # Añadir resto de la consulta
             sql += """
                 , (SELECT GROUP_CONCAT(DISTINCT service_id)
-                   FROM business_service
-                   WHERE business_id = b.id) as service_ids
-                FROM businesses b
-                LEFT JOIN categories c ON b.category_id = c.id
-                WHERE b.deleted_at IS NULL
+                           FROM business_service
+                           WHERE business_id = b.id) as service_ids
+                    FROM
+                        businesses b
+                        LEFT JOIN categories c ON b.category_id = c.id
+                    WHERE
+                        b.deleted_at IS NULL
             """
 
-            # Aplicar filtro de búsqueda por texto SIMPLIFICADO
+            # Aplicar filtro de búsqueda por texto si existe
+            # Aplicar filtro de búsqueda por texto si existe
             if query and query.strip():
-                sql += " AND LOWER(b.business_name) LIKE LOWER(%s)"
-                params.append(f"%{query}%")
-                logging.info(f"Aplicando filtro de texto simplificado: '{query}'")
+                sql += " AND MATCH(b.business_name) AGAINST(%s IN NATURAL LANGUAGE MODE)"
+                params.append(query)
 
-            # Aplicar filtro por ciudad específica si existe
+            # NUEVO: Aplicar filtro por ciudad específica si existe
             city_filter_applied = False
             if filters and 'city_name' in filters:
                 city_name = filters['city_name']
                 
+                # Verificar si la ciudad no fue encontrada en la DB
                 if filters.get('city_not_found_in_db', False):
+                    # Ciudad mencionada pero no existe en DB - búsqueda más amplia
                     sql += " AND (LOWER(b.business_city) LIKE LOWER(%s) OR LOWER(b.business_name) LIKE LOWER(%s) OR LOWER(b.business_address) LIKE LOWER(%s))"
                     city_pattern = f"%{city_name}%"
                     params.extend([city_pattern, city_pattern, city_pattern])
                     logging.info(f"Aplicando búsqueda amplia para ciudad no encontrada: {city_name}")
                 else:
+                    # Ciudad verificada en DB - búsqueda específica
                     sql += " AND (LOWER(b.business_city) = LOWER(%s) OR LOWER(b.business_city) LIKE LOWER(%s))"
                     params.extend([city_name, f"%{city_name}%"])
                     logging.info(f"Aplicando filtro específico por ciudad verificada: {city_name}")
@@ -466,6 +483,11 @@ class SearchEngine:
                     radius
                 ])
                 logging.info(f"Aplicando filtro de distancia con radio: {radius}km")
+            else:
+                if city_filter_applied:
+                    logging.info("Búsqueda por ciudad específica sin restricción geográfica")
+                else:
+                    logging.info("Búsqueda global sin restricción geográfica")
 
             # MANTENER TODOS LOS FILTROS EXISTENTES
             if filters:
@@ -475,9 +497,9 @@ class SearchEngine:
                     params.append(filters['category_id'])
                     logging.info(f"Aplicando filtro por categoría: {filters['category_id']}")
 
-                # Filtro por servicio - SIMPLIFICADO
+                # Filtro por servicio
                 if 'service_id' in filters:
-                    sql += " AND b.id IN (SELECT business_id FROM business_service WHERE service_id = %s)"
+                    sql += " AND EXISTS (SELECT 1 FROM business_service bs2 WHERE bs2.business_id = b.id AND bs2.service_id = %s)"
                     params.append(filters['service_id'])
                     logging.info(f"Aplicando filtro por servicio: {filters['service_id']}")
 
@@ -485,21 +507,25 @@ class SearchEngine:
                 if 'time' in filters:
                     time_info = filters['time']
                     
+                    # Filtro por horario de apertura
                     if 'open_from' in time_info:
                         sql += """
-                            AND b.id IN (
-                                SELECT business_id FROM business_hours 
-                                WHERE open_a <= %s
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.open_a <= %s
                             )
                         """
                         params.append(time_info['open_from'])
                         logging.info(f"Aplicando filtro abierto desde: {time_info['open_from']}")
                     
+                    # Filtro por horario de cierre
                     if 'open_until' in time_info:
                         sql += """
-                            AND b.id IN (
-                                SELECT business_id FROM business_hours 
-                                WHERE close_a >= %s
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.close_a >= %s
                             )
                         """
                         params.append(time_info['open_until'])
@@ -511,29 +537,38 @@ class SearchEngine:
                     if 'typical_hours' in meal_time:
                         typical_hours = meal_time['typical_hours']
                         sql += """
-                            AND b.id IN (
-                                SELECT business_id FROM business_hours 
-                                WHERE open_a <= %s AND close_a >= %s
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.open_a <= %s 
+                                AND bh.close_a >= %s
                             )
                         """
                         params.extend([typical_hours['to'], typical_hours['from']])
                         logging.info(f"Aplicando filtro por meal_time: {meal_time['type']}")
 
+            # Agrupar resultados
+            sql += " GROUP BY b.id"
+
             # Decidir orden según el tipo de búsqueda
             if city_filter_applied:
+                # Para búsquedas por ciudad, priorizar relevancia del texto
                 if query and query.strip():
-                    sql += " ORDER BY relevance DESC, b.business_name ASC"
+                    sql += " ORDER BY relevance DESC"
                 else:
                     sql += " ORDER BY b.business_name ASC"
             elif coordinates and (not query or not query.strip()):
+                # Si solo hay coordenadas, ordenar por distancia
                 sql += " ORDER BY distance_km ASC"
             elif coordinates:
+                # Si hay consulta Y coordenadas, ordenar por relevancia y luego distancia
                 sql += " ORDER BY relevance DESC, distance_km ASC"
             elif query and query.strip():
+                # Si solo hay consulta (búsqueda global), ordenar por relevancia
                 sql += " ORDER BY relevance DESC"
             else:
+                # Fallback: ordenar por nombre
                 sql += " ORDER BY b.business_name ASC"
-
             # Añadir paginación
             sql += " LIMIT %s OFFSET %s"
             params.extend([per_page, offset])
