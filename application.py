@@ -499,9 +499,14 @@ def search():
 
         # Estructura de respuesta esperada por Laravel
         response = {
-            "business": businesses,  # Usar "business" en lugar de "businesses"
-            "success": True
-        }
+             "success": True,
+             "business": {
+                 "data": businesses,
+                 "count": len(businesses),
+                 "page": 1,
+                 "total_pages": 1
+             }
+         }
 
         response_json_string = json.dumps(response, default=lambda o: o.isoformat() if isinstance(o, (datetime.datetime, datetime.date, datetime.time)) else str(o))
         parsed_response = json.loads(response_json_string)
