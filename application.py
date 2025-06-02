@@ -8,7 +8,7 @@ sys.path.insert(0, current_dir)
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
-from code.search.engine import SearchEngine  # Sin el punto inicial
+from .code.search.engine import SearchEngine  # Sin el punto inicial
 from dotenv import load_dotenv
 import logging
 import traceback
