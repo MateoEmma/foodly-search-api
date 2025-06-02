@@ -333,6 +333,25 @@ class TextProcessor:
         
         return None
     
+    def _clean_city_name(self, city_name: str) -> str:
+        """
+        Limpia el nombre de la ciudad removiendo palabras extra
+        """
+        # Remover palabras comunes que pueden acompañar al nombre de la ciudad
+        words_to_remove = [
+            'city', 'town', 'area', 'downtown', 'center', 'centre',
+            'district', 'neighborhood', 'neighbourhood'
+        ]
+        
+        words = city_name.split()
+        cleaned_words = []
+        
+        for word in words:
+            if word.lower() not in words_to_remove:
+                cleaned_words.append(word)
+        
+        return ' '.join(cleaned_words).strip()
+    
     def _should_use_user_location(self, tokens: List[str]) -> bool:
         """
         Determina si debe usar la ubicación del usuario basándose en el texto
