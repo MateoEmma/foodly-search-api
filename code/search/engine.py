@@ -14,7 +14,10 @@ class SearchEngine:
         """
         self.db_config = db_config
         self.text_processor = TextProcessor()
-
+        
+        # NUEVO: Pasar configuración de DB al text processor
+        self.text_processor.db_config = db_config
+        
         self.test_database_connection()
 
     def test_database_connection(self):
@@ -217,33 +220,42 @@ class SearchEngine:
         logging.info(f"Parámetros de búsqueda procesados: {search_params}")
         logging.info(f"Fuente de ubicación: {search_params.get('location_source', 'unknown')}")
         
-        # Determinar estrategia de búsqueda basada en la fuente de ubicación
-        if search_params.get('use_global_search', False):
-            # Búsqueda global para ubicaciones específicas mencionadas en texto
-            radius = 50.0  # Radio muy amplio
-            search_coordinates = None  # Sin restricción geográfica
-            logging.info(f"Realizando búsqueda global para ubicación específica del texto")
+        # Determinar estrategia de búsqueda basada en la detección de ciudad
+        search_coordinates = None
+        radius = 5.0
+        
+        if search_params.get('specific_location_info'):
+            # Ciudad específica detectada - usar filtro por ciudad
+            city_info = search_params['specific_location_info']
+            city_name = city_info['city_name']
             
-            # Si el texto menciona una ubicación específica, buscar por nombre también
-            if search_params.get('specific_location_info'):
-                location_name = search_params['specific_location_info']['location_name']
-                # Añadir el nombre de la ubicación a la query para mejorar matching
-                original_query = search_params['query']
-                enhanced_query = f"{original_query} {location_name}".strip()
-                search_params['query'] = enhanced_query
-                logging.info(f"Query mejorada con ubicación: '{enhanced_query}'")
+            # Verificar si la ciudad fue encontrada en DB
+            if city_info.get('city_not_found_in_db', False):
+                logging.info(f"Ciudad detectada pero no encontrada en DB: '{city_name}' - usando búsqueda amplia")
+            else:
+                logging.info(f"Ciudad verificada en DB: '{city_name}' - usando búsqueda específica")
+            
+            # No usar coordenadas para búsqueda por ciudad
+            search_coordinates = None
+            
+            logging.info(f"Búsqueda por ciudad detectada: '{city_name}'")
+            logging.info(f"Ignorando coordenadas del usuario, buscando en: {city_name}")
             
         elif search_params.get('location_source') == 'user_location':
-            # Búsqueda normal cerca del usuario
-            radius = 5.0
+            # Usuario quiere buscar cerca de su ubicación actual
             search_coordinates = search_params['coordinates']
+            radius = 5.0
             logging.info(f"Búsqueda cerca del usuario con radio: {radius}km")
             
-        else:
-            # Búsqueda por defecto
-            radius = 10.0
+        elif search_params.get('coordinates'):
+            # Búsqueda por defecto con coordenadas
             search_coordinates = search_params['coordinates']
+            radius = 10.0
             logging.info(f"Búsqueda por defecto con radio: {radius}km")
+        else:
+            # Búsqueda global sin restricciones
+            search_coordinates = None
+            logging.info("Búsqueda global sin restricciones geográficas")
         
         results = self.search_businesses(
             query=search_params['query'],
@@ -254,7 +266,13 @@ class SearchEngine:
         
         if isinstance(results, dict) and 'results' in results:
             logging.info(f"Búsqueda completada. Resultados: {len(results.get('results', []))} negocios encontrados")
-            logging.info(f"Estrategia utilizada: {search_params.get('location_source')}")
+            
+            # Log adicional para debugging
+            if search_params.get('specific_location_info'):
+                city_name = search_params['specific_location_info']['city_name']
+                logging.info(f"Resultados encontrados para ciudad: {city_name}")
+            else:
+                logging.info(f"Estrategia utilizada: {search_params.get('location_source')}")
         else:
             logging.warning(f"Estructura de resultados inesperada: {type(results)}")
         
@@ -426,12 +444,33 @@ class SearchEngine:
             """
 
             # Aplicar filtro de búsqueda por texto si existe
+            # Aplicar filtro de búsqueda por texto si existe
             if query and query.strip():
                 sql += " AND MATCH(b.business_name) AGAINST(%s IN NATURAL LANGUAGE MODE)"
                 params.append(query)
 
-            # Aplicar filtro de distancia
-            if coordinates:
+            # NUEVO: Aplicar filtro por ciudad específica si existe
+            city_filter_applied = False
+            if filters and 'city_name' in filters:
+                city_name = filters['city_name']
+                
+                # Verificar si la ciudad no fue encontrada en la DB
+                if filters.get('city_not_found_in_db', False):
+                    # Ciudad mencionada pero no existe en DB - búsqueda más amplia
+                    sql += " AND (LOWER(b.business_city) LIKE LOWER(%s) OR LOWER(b.business_name) LIKE LOWER(%s) OR LOWER(b.business_address) LIKE LOWER(%s))"
+                    city_pattern = f"%{city_name}%"
+                    params.extend([city_pattern, city_pattern, city_pattern])
+                    logging.info(f"Aplicando búsqueda amplia para ciudad no encontrada: {city_name}")
+                else:
+                    # Ciudad verificada en DB - búsqueda específica
+                    sql += " AND (LOWER(b.business_city) = LOWER(%s) OR LOWER(b.business_city) LIKE LOWER(%s))"
+                    params.extend([city_name, f"%{city_name}%"])
+                    logging.info(f"Aplicando filtro específico por ciudad verificada: {city_name}")
+                
+                city_filter_applied = True
+
+            # Aplicar filtro de distancia SOLO si hay coordenadas Y no hay filtro de ciudad
+            elif coordinates and not city_filter_applied:
                 sql += """
                     AND ST_Distance_Sphere(
                         point(b.business_longitude, b.business_latitude),
@@ -443,22 +482,82 @@ class SearchEngine:
                     coordinates['latitude'],
                     radius
                 ])
+                logging.info(f"Aplicando filtro de distancia con radio: {radius}km")
+            else:
+                if city_filter_applied:
+                    logging.info("Búsqueda por ciudad específica sin restricción geográfica")
+                else:
+                    logging.info("Búsqueda global sin restricción geográfica")
 
-            # Agregar filtros específicos
+            # MANTENER TODOS LOS FILTROS EXISTENTES
             if filters:
+                # Filtro por categoría
                 if 'category_id' in filters:
                     sql += " AND b.category_id = %s"
                     params.append(filters['category_id'])
+                    logging.info(f"Aplicando filtro por categoría: {filters['category_id']}")
 
+                # Filtro por servicio
                 if 'service_id' in filters:
                     sql += " AND EXISTS (SELECT 1 FROM business_service bs2 WHERE bs2.business_id = b.id AND bs2.service_id = %s)"
                     params.append(filters['service_id'])
+                    logging.info(f"Aplicando filtro por servicio: {filters['service_id']}")
+
+                # Filtros por horarios si existen
+                if 'time' in filters:
+                    time_info = filters['time']
+                    
+                    # Filtro por horario de apertura
+                    if 'open_from' in time_info:
+                        sql += """
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.open_a <= %s
+                            )
+                        """
+                        params.append(time_info['open_from'])
+                        logging.info(f"Aplicando filtro abierto desde: {time_info['open_from']}")
+                    
+                    # Filtro por horario de cierre
+                    if 'open_until' in time_info:
+                        sql += """
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.close_a >= %s
+                            )
+                        """
+                        params.append(time_info['open_until'])
+                        logging.info(f"Aplicando filtro abierto hasta: {time_info['open_until']}")
+
+                # Filtro por meal_time si existe
+                if 'meal_time' in filters:
+                    meal_time = filters['meal_time']
+                    if 'typical_hours' in meal_time:
+                        typical_hours = meal_time['typical_hours']
+                        sql += """
+                            AND EXISTS (
+                                SELECT 1 FROM business_hours bh 
+                                WHERE bh.business_id = b.id 
+                                AND bh.open_a <= %s 
+                                AND bh.close_a >= %s
+                            )
+                        """
+                        params.extend([typical_hours['to'], typical_hours['from']])
+                        logging.info(f"Aplicando filtro por meal_time: {meal_time['type']}")
 
             # Agrupar resultados
             sql += " GROUP BY b.id"
 
-            # Decidir orden según si hay coordenadas o consulta
-            if coordinates and (not query or not query.strip()):
+            # Decidir orden según el tipo de búsqueda
+            if city_filter_applied:
+                # Para búsquedas por ciudad, priorizar relevancia del texto
+                if query and query.strip():
+                    sql += " ORDER BY relevance DESC"
+                else:
+                    sql += " ORDER BY b.business_name ASC"
+            elif coordinates and (not query or not query.strip()):
                 # Si solo hay coordenadas, ordenar por distancia
                 sql += " ORDER BY distance_km ASC"
             elif coordinates:
@@ -468,9 +567,8 @@ class SearchEngine:
                 # Si solo hay consulta (búsqueda global), ordenar por relevancia
                 sql += " ORDER BY relevance DESC"
             else:
-                # Fallback: ordenar por ID
-                sql += " ORDER BY b.id ASC"
-
+                # Fallback: ordenar por nombre
+                sql += " ORDER BY b.business_name ASC"
             # Añadir paginación
             sql += " LIMIT %s OFFSET %s"
             params.extend([per_page, offset])

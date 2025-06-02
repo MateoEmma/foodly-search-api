@@ -6,6 +6,7 @@ from nltk.stem import SnowballStemmer
 import json
 import os
 import re
+import unicodedata
 
 class TextProcessor:
     def __init__(self):
@@ -61,7 +62,7 @@ class TextProcessor:
     def process_voice_query(self, text: str, coordinates: Optional[Dict] = None) -> Dict:
         """
         Procesa la consulta de voz con sistema de prioridades para ubicación
-        REEMPLAZA el método existente process_voice_query
+        MANTIENE TODOS LOS FILTROS EXISTENTES
         """
         # Tokenización y normalización básica
         tokens = word_tokenize(text.lower())
@@ -76,19 +77,17 @@ class TextProcessor:
         final_coordinates = None
         location_source = "none"
         cleaned_tokens = tokens
-        use_global_search = False
         
         if specific_location_info and not use_user_location:
             # HAY ubicación específica mencionada - NO usar coordenadas del usuario
             location_source = "text_specified"
-            final_coordinates = None  # Búsqueda global sin restricción geográfica
-            use_global_search = True
+            final_coordinates = None  # Búsqueda por ciudad, no por coordenadas
             
             # Limpiar tokens removiendo la referencia de ubicación
             cleaned_tokens = self._clean_location_from_tokens(tokens)
             
-            print(f"Ubicación específica detectada: {specific_location_info['location_name']}")
-            print(f"Cambiando a búsqueda global, ignorando coordenadas del usuario")
+            print(f"Ubicación específica detectada: {specific_location_info['city_name']}")
+            print(f"Cambiando a búsqueda por ciudad, ignorando coordenadas del usuario")
             
         elif use_user_location and coordinates:
             # Usuario quiere buscar cerca de su ubicación actual
@@ -109,14 +108,14 @@ class TextProcessor:
             if token not in self.stop_words
         ]
         
-        # Identificar categoría y servicio usando stems
+        # MANTENER: Identificar categoría y servicio usando stems
         category_id = self._identify_category(stemmed_tokens)
         service_id = self._identify_service(stemmed_tokens)
         location_context = self._check_location_context(tokens)
-        time_info = self._extract_time_info(tokens)
-        meal_time = self._identify_meal_time(tokens)
+        time_info = self._extract_time_info(tokens)  # MANTENER
+        meal_time = self._identify_meal_time(tokens)  # MANTENER
         
-        # Construir filtros
+        # MANTENER: Construir filtros existentes
         filters = {}
         if category_id:
             filters['category_id'] = category_id
@@ -127,13 +126,18 @@ class TextProcessor:
         if meal_time:
             filters['meal_time'] = meal_time
         
+        # NUEVO: Añadir filtro de ciudad si se detectó
+        if specific_location_info:
+            filters['city_name'] = specific_location_info['city_name']
+            if specific_location_info.get('city_not_found_in_db', False):
+                filters['city_not_found_in_db'] = True
+        
         return {
             'query': self._clean_search_text(cleaned_tokens, stemmed_tokens),
             'filters': filters,
             'use_location': bool(final_coordinates),
             'coordinates': final_coordinates,
             'location_source': location_source,
-            'use_global_search': use_global_search,
             'specific_location_info': specific_location_info,
             'original_text': text
         }
@@ -269,72 +273,229 @@ class TextProcessor:
         return ' '.join(clean_tokens)
     
     def _extract_location_from_text(self, tokens: List[str]) -> Optional[Dict]:
-        '''
-        Detecta si hay una ubicacion especifica mencionada en el texto
-        '''
-
+        """
+        Detecta si hay una ciudad específica mencionada en el texto
+        """
         text = ' '.join(tokens).lower()
-
-        import re
+        
+        # Patrones que indican ubicación específica
         location_patterns = [
-            r'in\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
-            r'at\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
-            r'near\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)',
-            r'around\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)'
-            r'by\s+([a-zA-Z][a-zA-Z\s]{2,}?)(?:\s|$|,)'
+            r'in\s+([a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]{1,}?)(?:\s|$|,|\.|!|\?)',
+            r'at\s+([a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]{1,}?)(?:\s|$|,|\.|!|\?)',
+            r'near\s+([a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]{1,}?)(?:\s|$|,|\.|!|\?)',
+            r'around\s+([a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]{1,}?)(?:\s|$|,|\.|!|\?)',
+            r'by\s+([a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]{1,}?)(?:\s|$|,|\.|!|\?)'
         ]
-
+        
         for pattern in location_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
                 location_name = match.strip()
                 
+                # Filtrar palabras comunes que NO son ubicaciones
                 exclude_words = {
                     'me', 'you', 'here', 'there', 'home', 'work', 
                     'the', 'a', 'an', 'my', 'your', 'this', 'that',
                     'good', 'bad', 'nice', 'great', 'best', 'worst',
-                    'order', 'delivery', 'pickup', 'takeaway', 'restaurant'
+                    'order', 'delivery', 'pickup', 'takeaway', 'restaurant',
+                    'food', 'place', 'area', 'zone', 'street', 'road'
                 }
-
-                if (len(location_name) >= 3 and
+                
+                if (len(location_name) >= 2 and 
                     location_name.lower() not in exclude_words and
                     not any(word in location_name.lower().split() for word in exclude_words)):
-
-                    print(f'Ubicacion especifica detectada: {location_name}')
-                    return {
-                        'location_specified': True,
-                        'location_name': location_name,
-                        'original_pattern': pattern
-                    }
+                    
+                    # Limpiar el nombre de la ciudad
+                    clean_city_name = self._clean_city_name(location_name)
+                    
+                    # Verificar si la ciudad existe en la base de datos
+                    verified_city = self._verify_city_exists_in_db(clean_city_name)
+                    
+                    if verified_city:
+                        print(f"Ciudad verificada en DB: '{verified_city}' (detectada: '{clean_city_name}')")
+                        return {
+                            'location_specified': True, 
+                            'city_name': verified_city,
+                            'detected_name': clean_city_name,
+                            'original_match': location_name,
+                            'pattern_used': pattern
+                        }
+                    else:
+                        print(f"Ciudad detectada pero no existe en DB: '{clean_city_name}'")
+                        return {
+                            'location_specified': True, 
+                            'city_name': clean_city_name,
+                            'detected_name': clean_city_name,
+                            'original_match': location_name,
+                            'pattern_used': pattern,
+                            'city_not_found_in_db': True
+                        }
+        
         return None
     
     def _should_use_user_location(self, tokens: List[str]) -> bool:
         """
-        Determina si se debe usar la ubicación del usuario
+        Determina si debe usar la ubicación del usuario basándose en el texto
         """
         user_location_indicators = [
             'near me', 'close to me', 'around me', 'nearby me',
             'current location', 'my location', 'here', 'nearby',
             'walking distance', 'close', 'around'
         ]
-
+        
         text = ' '.join(tokens).lower()
-
-        #Verificar palabras clave del mapping existente
-        location_keywords = self.mapping.get('location', {}).get('keywords', [])
-
-        #Combinar ambas listas
+        
+        # Verificar palabras clave del mapping existente
+        location_keywords = self.mappings.get('location', {}).get('keywords', [])
+        
+        # Combinar ambas listas
         all_indicators = user_location_indicators + location_keywords
-
-        #Verificar si alguna de las palabras clave está en el texto
+        
+        # Verificar si alguna palabra clave está presente
         has_user_keywords = any(indicator in text for indicator in all_indicators)
-
-        #Verificar si No hay ubicacion especifica mencionada
+        
+        # Verificar si NO hay ubicación específica mencionada
         has_specific_location = self._extract_location_from_text(tokens) is not None
-
+        
         return has_user_keywords and not has_specific_location
+    
+    def _normalize_city_name(self, city_name: str) -> str:
+        """
+        Normaliza el nombre de la ciudad para mejor matching
+        """
+        # Convertir a lowercase
+        normalized = city_name.lower()
+        
+        # Remover acentos/tildes
+        normalized = unicodedata.normalize('NFD', normalized)
+        normalized = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+        
+        # Remover palabras comunes que pueden variar
+        words_to_remove = [
+            'ciudad', 'city', 'autonoma', 'autonomous', 'de', 'del', 'la', 'las', 'el', 'los',
+            'metropolitan', 'metro', 'area', 'region', 'province', 'provincia'
+        ]
+        
+        words = normalized.split()
+        filtered_words = []
+        
+        for word in words:
+            if word not in words_to_remove and len(word) > 1:
+                filtered_words.append(word)
+        
+        return ' '.join(filtered_words)
+    
+    def _clean_location_from_tokens(self, tokens: List[str]) -> List[str]:
+        """
+        Remueve referencias de ubicación del texto para limpiar la búsqueda
+        """
+        text = ' '.join(tokens)
+        
+        # Patrones a remover
+        patterns = [
+            r'\s*in\s+[a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]*',
+            r'\s*at\s+[a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]*',
+            r'\s*near\s+[a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]*',
+            r'\s*around\s+[a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ][a-zA-ZáéíóúÁÉÍÓÚàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãñÃÑçÇ\s]*'
+        ]
+        
+        cleaned_text = text
+        for pattern in patterns:
+            cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.IGNORECASE)
+        
+        # Limpiar espacios extra
+        cleaned_text = ' '.join(cleaned_text.split())
+    
+        return cleaned_text.split() if cleaned_text else tokens
 
-#processor = TextProcessor()
+    def _get_city_variations(self, city_name: str) -> List[str]:
+        """
+        Genera variaciones posibles del nombre de la ciudad
+        """
+        variations = [city_name]
+        
+        # Versión normalizada
+        normalized = self._normalize_city_name(city_name)
+        if normalized != city_name.lower():
+            variations.append(normalized)
+        
+        # Variaciones comunes
+        city_lower = city_name.lower()
+        
+        # Variaciones de acentos comunes
+        accent_variations = {
+            'covilhã': ['covilha', 'covilhan'],
+            'covilha': ['covilhã', 'covilhan'], 
+            'são': ['sao'],
+            'sao': ['são'],
+            'josé': ['jose'],
+            'jose': ['josé']
+        }
+        
+        for original, variants in accent_variations.items():
+            if original in city_lower:
+                for variant in variants:
+                    variations.append(city_name.lower().replace(original, variant))
+        
+        # Remover duplicados manteniendo orden
+        seen = set()
+        unique_variations = []
+        for var in variations:
+            if var.lower() not in seen:
+                seen.add(var.lower())
+                unique_variations.append(var)
+        
+        return unique_variations
 
-#result = processor.process_voice_query("I would like to find an Italian pizzeria that is open from 7 PM and has take away please")
-#print(result)
+    def _verify_city_exists_in_db(self, city_name: str) -> Optional[str]:
+        """
+        Verifica si la ciudad existe en la base de datos y retorna el nombre exacto
+        """
+        try:
+            import mysql.connector
+            
+            # Usar configuración de DB del motor de búsqueda
+            db_config = getattr(self, 'db_config', None)
+            if not db_config:
+                print("Warning: No hay configuración de DB disponible para verificar ciudad")
+                return city_name
+            
+            conn = mysql.connector.connect(**db_config)
+            cursor = conn.cursor()
+            
+            # Generar variaciones de la ciudad
+            city_variations = self._get_city_variations(city_name)
+            
+            for variation in city_variations:
+                # Buscar coincidencia exacta
+                cursor.execute(
+                    "SELECT DISTINCT business_city FROM businesses WHERE LOWER(business_city) = LOWER(%s) LIMIT 1",
+                    (variation,)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    print(f"Ciudad encontrada en DB: '{result[0]}' (buscando: '{variation}')")
+                    return result[0]
+                
+                # Buscar coincidencia parcial
+                cursor.execute(
+                    "SELECT DISTINCT business_city FROM businesses WHERE LOWER(business_city) LIKE LOWER(%s) LIMIT 1",
+                    (f"%{variation}%",)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    print(f"Ciudad encontrada parcialmente en DB: '{result[0]}' (buscando: '{variation}')")
+                    return result[0]
+            
+            print(f"Ciudad no encontrada en DB: '{city_name}'")
+            return None
+            
+        except Exception as e:
+            print(f"Error verificando ciudad en DB: {e}")
+            return city_name
+        finally:
+            if 'conn' in locals() and conn.is_connected():
+                cursor.close()
+                conn.close()
